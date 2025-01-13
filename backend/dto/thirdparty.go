@@ -28,23 +28,40 @@ type Identity struct {
 	Provider string `json:"provider"`
 }
 
-func FromIdentityModel(identity *models.Identity) *Identity {
+type Identities []Identity
+
+func FromIdentitiesModel(identities models.Identities, cfg *config.Config) Identities {
+	var result Identities
+	for _, i := range identities {
+		identity := FromIdentityModel(&i, cfg)
+		result = append(result, *identity)
+	}
+	return result
+}
+
+func FromIdentityModel(identity *models.Identity, cfg *config.Config) *Identity {
 	if identity == nil {
 		return nil
 	}
 
 	return &Identity{
 		ID:       identity.ProviderID,
-		Provider: getProviderDisplayName(identity),
+		Provider: getProviderDisplayName(identity, cfg),
 	}
 }
 
-func getProviderDisplayName(identity *models.Identity) string {
-	s := structs.New(config.ThirdPartyProviders{})
-	for _, field := range s.Fields() {
-		if strings.ToLower(field.Name()) == strings.ToLower(identity.ProviderName) {
-			return field.Name()
+func getProviderDisplayName(identity *models.Identity, cfg *config.Config) string {
+	if strings.HasPrefix(identity.ProviderName, "custom_") {
+		providerNameWithoutPrefix := strings.TrimPrefix(identity.ProviderName, "custom_")
+		return cfg.ThirdParty.CustomProviders[providerNameWithoutPrefix].DisplayName
+	} else {
+		s := structs.New(config.ThirdPartyProviders{})
+		for _, field := range s.Fields() {
+			if strings.ToLower(field.Name()) == strings.ToLower(identity.ProviderName) {
+				return field.Name()
+			}
 		}
 	}
-	return ""
+
+	return strings.TrimSpace(identity.ProviderName)
 }

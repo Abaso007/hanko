@@ -14,6 +14,9 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
+# Generated files
+.generated
+
 # MacOS
 .DS_Store
 
@@ -31,4 +34,4 @@ e2e/test-results/
 e2e/playwright-report/
 e2e/playwright/.cache/
 /backend/build_info/version.txt
-
+/backend/dist

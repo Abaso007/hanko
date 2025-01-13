@@ -1,6 +1,5 @@
 import { RequestTimeoutError, TechnicalError } from "../Errors";
 import { SessionState } from "../state/session/SessionState";
-import { PasscodeState } from "../state/users/PasscodeState";
 import { Dispatcher } from "../events/Dispatcher";
 import { Cookie } from "../Cookie";
 
@@ -114,12 +113,17 @@ class Response {
  * @subcategory Internal
  * @property {number} timeout - The http request timeout in milliseconds.
  * @property {string} cookieName - The name of the session cookie set from the SDK.
+ * @property {string=} cookieDomain - The domain where cookie set from the SDK is available. Defaults to the domain of the page where the cookie was created.
  * @property {string} localStorageKey - The prefix / name of the local storage keys.
+ * @property {string} lang - The language used by the client(s) to convey to the Hanko API the language to use -
+ *                           e.g. for translating outgoing emails - in a custom header (X-Language).
  */
 export interface HttpClientOptions {
   timeout: number;
   cookieName: string;
+  cookieDomain?: string;
   localStorageKey: string;
+  lang?: string;
 }
 
 /**
@@ -140,30 +144,33 @@ class HttpClient {
   timeout: number;
   api: string;
   sessionState: SessionState;
-  passcodeState: PasscodeState;
   dispatcher: Dispatcher;
   cookie: Cookie;
+  lang: string;
 
   // eslint-disable-next-line require-jsdoc
   constructor(api: string, options: HttpClientOptions) {
     this.api = api;
     this.timeout = options.timeout;
     this.sessionState = new SessionState({ ...options });
-    this.passcodeState = new PasscodeState(options.cookieName);
     this.dispatcher = new Dispatcher({ ...options });
     this.cookie = new Cookie({ ...options });
+    this.lang = options.lang;
   }
 
   // eslint-disable-next-line require-jsdoc
   _fetch(path: string, options: RequestInit, xhr = new XMLHttpRequest()) {
+    const self = this;
     const url = this.api + path;
     const timeout = this.timeout;
     const bearerToken = this.cookie.getAuthCookie();
+    const lang = this.lang;
 
     return new Promise<Response>(function (resolve, reject) {
       xhr.open(options.method, url, true);
       xhr.setRequestHeader("Accept", "application/json");
       xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("X-Language", lang);
 
       if (bearerToken) {
         xhr.setRequestHeader("Authorization", `Bearer ${bearerToken}`);
@@ -172,8 +179,8 @@ class HttpClient {
       xhr.timeout = timeout;
       xhr.withCredentials = true;
       xhr.onload = () => {
-        const response = new Response(xhr);
-        resolve(response);
+        self.processHeaders(xhr);
+        resolve(new Response(xhr));
       };
 
       xhr.onerror = () => {
@@ -189,49 +196,50 @@ class HttpClient {
   }
 
   /**
-   * Processes the response headers on login and extracts the JWT and expiration time. Also, the passcode state will be
-   * removed, the session state updated und a `hanko-session-created` event will be dispatched.
+   * Processes the response headers on login and extracts the JWT and expiration time.
    *
-   * @param {string} userID - The user ID.
-   * @param {Response} response - The HTTP response object.
+   * @param {XMLHttpRequest} xhr - The xhr object.
    */
-  processResponseHeadersOnLogin(userID: string, response: Response) {
+  processHeaders(xhr: XMLHttpRequest) {
     let jwt = "";
     let expirationSeconds = 0;
+    let retention = "";
 
-    response.xhr
+    xhr
       .getAllResponseHeaders()
       .split("\r\n")
       .forEach((h) => {
         const header = h.toLowerCase();
         if (header.startsWith("x-auth-token")) {
-          jwt = response.headers.getResponseHeader("X-Auth-Token");
+          jwt = xhr.getResponseHeader("X-Auth-Token");
         } else if (header.startsWith("x-session-lifetime")) {
           expirationSeconds = parseInt(
-            response.headers.getResponseHeader("X-Session-Lifetime"),
-            10
+            xhr.getResponseHeader("X-Session-Lifetime"),
+            10,
           );
+        } else if (header.startsWith("x-session-retention")) {
+          retention = xhr.getResponseHeader("X-Session-Retention");
         }
       });
 
     if (jwt) {
-      const secure = !!this.api.match("^https://");
-      this.cookie.setAuthCookie(jwt, secure);
-    }
+      const https = new RegExp("^https://");
+      const secure =
+        !!this.api.match(https) && !!window.location.href.match(https);
 
-    this.passcodeState.read().reset(userID).write();
+      const expires =
+        retention === "session"
+          ? undefined
+          : new Date(new Date().getTime() + expirationSeconds * 1000);
+
+      this.cookie.setAuthCookie(jwt, { secure, expires });
+    }
 
     if (expirationSeconds > 0) {
       this.sessionState.read();
       this.sessionState.setExpirationSeconds(expirationSeconds);
-      this.sessionState.setUserID(userID);
       this.sessionState.setAuthFlowCompleted(false);
       this.sessionState.write();
-      this.dispatcher.dispatchSessionCreatedEvent({
-        jwt,
-        userID,
-        expirationSeconds,
-      });
     }
   }
 

@@ -35,13 +35,11 @@
 .exclamationMark
   @extend .icon
   fill: variables.$error-color
-  padding-right: 5px
 
 // Loading Spinner Styles
 
 .loadingSpinnerWrapperIcon
   @extend .loadingSpinnerWrapper
-  justify-content: flex-start
   width: 100%
   column-gap: 10px
   margin-left: 10px
@@ -51,6 +49,14 @@
   align-items: center
   height: 100%
   margin: 0 5px
+  justify-content: inherit
+  flex-wrap: inherit
+
+  &.centerContent
+    justify-content: center
+
+  &.maxWidth
+    width: 100%
 
   .loadingSpinner
     @extend .icon
@@ -81,3 +87,17 @@
     fill: #FBBC05
   &.red
     fill: #EA4335
+
+.microsoftIcon
+  &.disabled
+    fill: variables.$color-shade-1
+
+  &.blue
+    fill: #00A4EF
+  &.green
+    fill: #7FBA00
+  &.yellow
+    fill: #FFB900
+  &.red
+    fill: #F25022
+

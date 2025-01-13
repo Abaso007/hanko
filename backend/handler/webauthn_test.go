@@ -6,18 +6,13 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/gofrs/uuid"
 	"github.com/labstack/echo/v4"
-	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/stretchr/testify/suite"
-	"github.com/teamhanko/hanko/backend/config"
-	"github.com/teamhanko/hanko/backend/crypto/jwk"
 	"github.com/teamhanko/hanko/backend/persistence/models"
-	"github.com/teamhanko/hanko/backend/session"
 	"github.com/teamhanko/hanko/backend/test"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestWebauthnSuite(t *testing.T) {
@@ -33,7 +28,8 @@ func (s *webauthnSuite) TestWebauthnHandler_NewHandler() {
 	if testing.Short() {
 		s.T().Skip("skipping test in short mode")
 	}
-	handler, err := NewWebauthnHandler(&test.DefaultConfig, s.Storage, s.GetDefaultSessionManager(), test.NewAuditLogger())
+	manager := getDefaultSessionManager(s.Storage)
+	handler, err := NewWebauthnHandler(&test.DefaultConfig, s.Storage, manager, test.NewAuditLogger(), nil)
 	s.NoError(err)
 	s.NotEmpty(handler)
 }
@@ -46,14 +42,11 @@ func (s *webauthnSuite) TestWebauthnHandler_BeginRegistration() {
 	err := s.LoadFixtures("../test/fixtures/webauthn")
 	s.Require().NoError(err)
 
-	userId := "ec4ef049-5b88-4321-a173-21b0eff06a04"
+	userId := uuid.FromStringOrNil("ec4ef049-5b88-4321-a173-21b0eff06a04")
 
-	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil)
+	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil, nil)
 
-	sessionManager := s.GetDefaultSessionManager()
-	token, err := sessionManager.GenerateJWT(uuid.FromStringOrNil(userId))
-	s.Require().NoError(err)
-	cookie, err := sessionManager.GenerateCookie(token)
+	cookie, err := generateSessionCookie(s.Storage, userId)
 	s.Require().NoError(err)
 
 	req := httptest.NewRequest(http.MethodPost, "/webauthn/registration/initialize", nil)
@@ -71,7 +64,7 @@ func (s *webauthnSuite) TestWebauthnHandler_BeginRegistration() {
 		s.Require().NoError(err)
 
 		s.NotEmpty(creationOptions.Response.Challenge)
-		s.Equal(uuid.FromStringOrNil(userId).Bytes(), uId)
+		s.Equal(uuid.FromStringOrNil(userId.String()).Bytes(), uId)
 		s.Equal(test.DefaultConfig.Webauthn.RelyingParty.Id, creationOptions.Response.RelyingParty.ID)
 		s.Equal(protocol.ResidentKeyRequirementRequired, creationOptions.Response.AuthenticatorSelection.ResidentKey)
 		s.Equal(protocol.VerificationPreferred, creationOptions.Response.AuthenticatorSelection.UserVerification)
@@ -87,14 +80,11 @@ func (s *webauthnSuite) TestWebauthnHandler_FinalizeRegistration() {
 	err := s.LoadFixtures("../test/fixtures/webauthn_registration")
 	s.Require().NoError(err)
 
-	userId := "ec4ef049-5b88-4321-a173-21b0eff06a04"
+	userId := uuid.FromStringOrNil("ec4ef049-5b88-4321-a173-21b0eff06a04")
 
-	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil)
+	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil, nil)
 
-	sessionManager := s.GetDefaultSessionManager()
-	token, err := sessionManager.GenerateJWT(uuid.FromStringOrNil(userId))
-	s.Require().NoError(err)
-	cookie, err := sessionManager.GenerateCookie(token)
+	cookie, err := generateSessionCookie(s.Storage, userId)
 	s.Require().NoError(err)
 
 	body := `{
@@ -125,6 +115,40 @@ func (s *webauthnSuite) TestWebauthnHandler_FinalizeRegistration() {
 	s.Equal(http.StatusBadRequest, rec2.Code)
 }
 
+func (s *webauthnSuite) TestWebauthnHandler_FinalizeRegistration_SessionDataExpired() {
+	if testing.Short() {
+		s.T().Skip("skipping test in short mode")
+	}
+
+	err := s.LoadFixtures("../test/fixtures/webauthn_registration")
+	s.Require().NoError(err)
+
+	userId := uuid.FromStringOrNil("ec4ef049-5b88-4321-a173-21b0eff06a04")
+
+	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil, nil)
+
+	cookie, err := generateSessionCookie(s.Storage, userId)
+	s.Require().NoError(err)
+
+	body := `{
+"id": "4iVZGFN_jktXJmwmBmaSq0Qr4T62T0jX7PS7XcgAWlM",
+"rawId": "4iVZGFN_jktXJmwmBmaSq0Qr4T62T0jX7PS7XcgAWlM",
+"type": "public-key",
+"response": {
+"attestationObject": "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVikSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAQECAwQFBgcIAQIDBAUGBwgAIOIlWRhTf45LVyZsJgZmkqtEK-E-tk9I1-z0u13IAFpTpQECAyYgASFYIAeA_nt5TQ8c7bc8hN9_3zqzp3coXO5aplEeHMOQG0hrIlggf_KVxZI_nIedc1XMrwwOMaYNd0qxVpFK7vU79fGBoxY",
+"clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiRmVNYzdzUjlFbGVod0VVNVR0RVdGaTdyUFAzLWtkWlhnbndMdGxiM0NoWSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODg4OCIsImNyb3NzT3JpZ2luIjpmYWxzZX0"
+}
+}`
+
+	req := httptest.NewRequest(http.MethodPost, "/webauthn/registration/finalize", strings.NewReader(body))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusBadRequest, rec.Code)
+}
+
 func (s *webauthnSuite) TestWebauthnHandler_BeginAuthentication() {
 	if testing.Short() {
 		s.T().Skip("skipping test in short mode")
@@ -133,7 +157,7 @@ func (s *webauthnSuite) TestWebauthnHandler_BeginAuthentication() {
 	err := s.LoadFixtures("../test/fixtures/webauthn")
 	s.Require().NoError(err)
 
-	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil)
+	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/webauthn/login/initialize", nil)
 	rec := httptest.NewRecorder()
 
@@ -157,7 +181,7 @@ func (s *webauthnSuite) TestWebauthnHandler_FinalizeAuthentication() {
 	err := s.LoadFixtures("../test/fixtures/webauthn")
 	s.Require().NoError(err)
 
-	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil)
+	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil, nil)
 
 	body := `{
 "id": "AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmEvBX6RNKHaGtVzpATs06KQVheIOjYz-YneG4cmQOedzl0e0jF951ukx17Hl9jeGgWz5_DKZCO12p2-2LlzjH",
@@ -202,6 +226,36 @@ func (s *webauthnSuite) TestWebauthnHandler_FinalizeAuthentication() {
 	}
 }
 
+func (s *webauthnSuite) TestWebauthnHandler_FinalizeAuthentication_SessionDataExpired() {
+	if testing.Short() {
+		s.T().Skip("skipping test in short mode")
+	}
+
+	err := s.LoadFixtures("../test/fixtures/webauthn")
+	s.Require().NoError(err)
+
+	e := NewPublicRouter(&test.DefaultConfig, s.Storage, nil, nil)
+
+	body := `{
+"id": "4iVZGFN_jktXJmwmBmaSq0Qr4T62T0jX7PS7XcgAWlM",
+"rawId": "4iVZGFN_jktXJmwmBmaSq0Qr4T62T0jX7PS7XcgAWlM",
+"type": "public-key",
+"response": {
+"authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAABA",
+"clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiQVVnTmtWOG5tVnd2LXJsOC1hSzFaRVg1RmxlbllDc2FUWTh2ZEVjSktKUSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODg4OCIsImNyb3NzT3JpZ2luIjpmYWxzZSwib3RoZXJfa2V5c19jYW5fYmVfYWRkZWRfaGVyZSI6ImRvIG5vdCBjb21wYXJlIGNsaWVudERhdGFKU09OIGFnYWluc3QgYSB0ZW1wbGF0ZS4gU2VlIGh0dHBzOi8vZ29vLmdsL3lhYlBleCJ9",
+"signature": "MEUCIQD46qneg2W9izFrJ-houyPia_QIcFR_9ZZIoWAqMywRmgIgMed7NAgcXkgCSWtVNknb_D70sn8b-fGwQQBlBCgIJ-c",
+"userHandle": "RmJoNvLbTsCHUoWLVEy8eA"
+}
+}`
+
+	req := httptest.NewRequest(http.MethodPost, "/webauthn/login/finalize", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusUnauthorized, rec.Code)
+}
+
 func (s *webauthnSuite) TestWebauthnHandler_FinalizeAuthentication_TokenInHeader() {
 	if testing.Short() {
 		s.T().Skip("skipping test in short mode")
@@ -212,7 +266,7 @@ func (s *webauthnSuite) TestWebauthnHandler_FinalizeAuthentication_TokenInHeader
 
 	cfg := test.DefaultConfig
 	cfg.Session.EnableAuthTokenHeader = true
-	e := NewPublicRouter(&cfg, s.Storage, nil)
+	e := NewPublicRouter(&cfg, s.Storage, nil, nil)
 
 	body := `{
 "id": "AaFdkcD4SuPjF-jwUoRwH8-ZHuY5RW46fsZmEvBX6RNKHaGtVzpATs06KQVheIOjYz-YneG4cmQOedzl0e0jF951ukx17Hl9jeGgWz5_DKZCO12p2-2LlzjH",
@@ -252,67 +306,7 @@ func (s *webauthnSuite) TestWebauthnHandler_FinalizeAuthentication_TokenInHeader
 	}
 }
 
-func (s *webauthnSuite) GetDefaultSessionManager() session.Manager {
-	jwkManager, err := jwk.NewDefaultManager(test.DefaultConfig.Secrets.Keys, s.Storage.GetJwkPersister())
-	s.Require().NoError(err)
-	sessionManager, err := session.NewManager(jwkManager, test.DefaultConfig)
-	s.Require().NoError(err)
-
-	return sessionManager
-}
-
 var userId = "ec4ef049-5b88-4321-a173-21b0eff06a04"
-
-var defaultConfig = config.Config{
-	Webauthn: config.WebauthnSettings{
-		RelyingParty: config.RelyingParty{
-			Id:          "localhost",
-			DisplayName: "Test Relying Party",
-			Icon:        "",
-			Origins:     []string{"http://localhost:8080"},
-		},
-		Timeout: 60000,
-	},
-	Secrets: config.Secrets{
-		Keys: []string{"abcdefghijklmnop"},
-	},
-	Passcode: config.Passcode{Smtp: config.SMTP{
-		Host: "localhost",
-		Port: "2500",
-	}},
-}
-
-type sessionManager struct {
-}
-
-func (s sessionManager) GenerateJWT(uuid uuid.UUID) (string, error) {
-	return userId, nil
-}
-
-func (s sessionManager) GenerateCookie(token string) (*http.Cookie, error) {
-	return &http.Cookie{
-		Name:     "hanko",
-		Value:    token,
-		Secure:   true,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	}, nil
-}
-
-func (s sessionManager) DeleteCookie() (*http.Cookie, error) {
-	return &http.Cookie{
-		Name:     "hanko",
-		Value:    "",
-		Secure:   true,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-	}, nil
-}
-
-func (s sessionManager) Verify(token string) (jwt.Token, error) {
-	return nil, nil
-}
 
 var uId, _ = uuid.FromString(userId)
 
@@ -322,15 +316,4 @@ var emails = []models.Email{
 		Address:      "john.doe@example.com",
 		PrimaryEmail: &models.PrimaryEmail{ID: uId},
 	},
-}
-
-var users = []models.User{
-	func() models.User {
-		return models.User{
-			ID:        uId,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-			Emails:    emails,
-		}
-	}(),
 }

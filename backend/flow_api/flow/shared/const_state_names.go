@@ -1,0 +1,32 @@
+package shared
+
+import "github.com/teamhanko/hanko/backend/flowpilot"
+
+const (
+	StateCredentialOnboardingChooser           flowpilot.StateName = "credential_onboarding_chooser"
+	StateDeviceTrust                           flowpilot.StateName = "device_trust"
+	StateError                                 flowpilot.StateName = "error"
+	StateLoginInit                             flowpilot.StateName = "login_init"
+	StateLoginMethodChooser                    flowpilot.StateName = "login_method_chooser"
+	StateLoginOTP                              flowpilot.StateName = "login_otp"
+	StateLoginPasskey                          flowpilot.StateName = "login_passkey"
+	StateLoginPassword                         flowpilot.StateName = "login_password"
+	StateLoginPasswordRecovery                 flowpilot.StateName = "login_password_recovery"
+	StateLoginSecurityKey                      flowpilot.StateName = "login_security_key"
+	StateMFAMethodChooser                      flowpilot.StateName = "mfa_method_chooser"
+	StateOnboardingCreatePasskey               flowpilot.StateName = "onboarding_create_passkey"
+	StateOnboardingEmail                       flowpilot.StateName = "onboarding_email"
+	StateOnboardingUsername                    flowpilot.StateName = "onboarding_username"
+	StateOnboardingVerifyPasskeyAttestation    flowpilot.StateName = "onboarding_verify_passkey_attestation"
+	StateMFAOTPSecretCreation                  flowpilot.StateName = "mfa_otp_secret_creation"
+	StatePasscodeConfirmation                  flowpilot.StateName = "passcode_confirmation"
+	StatePasswordCreation                      flowpilot.StateName = "password_creation"
+	StatePreflight                             flowpilot.StateName = "preflight"
+	StateProfileAccountDeleted                 flowpilot.StateName = "account_deleted"
+	StateProfileInit                           flowpilot.StateName = "profile_init"
+	StateProfileWebauthnCredentialVerification flowpilot.StateName = "webauthn_credential_verification"
+	StateRegistrationInit                      flowpilot.StateName = "registration_init"
+	StateMFASecurityKeyCreation                flowpilot.StateName = "mfa_security_key_creation"
+	StateSuccess                               flowpilot.StateName = "success"
+	StateThirdParty                            flowpilot.StateName = "thirdparty"
+)

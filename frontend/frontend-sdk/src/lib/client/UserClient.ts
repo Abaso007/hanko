@@ -4,6 +4,7 @@ import {
   NotFoundError,
   TechnicalError,
   UnauthorizedError,
+  ForbiddenError,
 } from "../Errors";
 import { Client } from "./Client";
 
@@ -55,15 +56,14 @@ class UserClient extends Client {
 
     if (response.status === 409) {
       throw new ConflictError();
+    }
+    if (response.status === 403) {
+      throw new ForbiddenError();
     } else if (!response.ok) {
       throw new TechnicalError();
     }
 
-    const createUser: UserCreated = response.json();
-    if (createUser && createUser.user_id) {
-      this.client.processResponseHeadersOnLogin(createUser.user_id, response);
-    }
-    return createUser;
+    return response.json();
   }
 
   /**

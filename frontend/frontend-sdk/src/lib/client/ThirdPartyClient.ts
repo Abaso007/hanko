@@ -1,6 +1,5 @@
 import { Client } from "./Client";
 import { ThirdPartyError } from "../Errors";
-import { HankoOptions } from "../../Hanko";
 
 /**
  * A class that handles communication with the Hanko API for the purposes
@@ -27,14 +26,14 @@ export class ThirdPartyClient extends Client {
     if (!provider) {
       throw new ThirdPartyError(
         "somethingWentWrong",
-        new Error("provider missing from request")
+        new Error("provider missing from request"),
       );
     }
 
     if (!redirectTo) {
       throw new ThirdPartyError(
         "somethingWentWrong",
-        new Error("redirectTo missing from request")
+        new Error("redirectTo missing from request"),
       );
     }
 
@@ -69,6 +68,9 @@ export class ThirdPartyClient extends Client {
           break;
         case "email_maxnum":
           code = "maxNumOfEmailAddressesReached";
+          break;
+        case "signup_disabled":
+          code = "signupDisabled";
           break;
         default:
           code = "somethingWentWrong";

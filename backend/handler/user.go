@@ -10,9 +10,12 @@ import (
 	"github.com/teamhanko/hanko/backend/audit_log"
 	"github.com/teamhanko/hanko/backend/config"
 	"github.com/teamhanko/hanko/backend/dto"
+	"github.com/teamhanko/hanko/backend/dto/admin"
 	"github.com/teamhanko/hanko/backend/persistence"
 	"github.com/teamhanko/hanko/backend/persistence/models"
 	"github.com/teamhanko/hanko/backend/session"
+	"github.com/teamhanko/hanko/backend/webhooks/events"
+	"github.com/teamhanko/hanko/backend/webhooks/utils"
 	"net/http"
 	"strings"
 )
@@ -38,6 +41,10 @@ type UserCreateBody struct {
 }
 
 func (h *UserHandler) Create(c echo.Context) error {
+	if !h.cfg.Account.AllowSignup {
+		return echo.NewHTTPError(http.StatusForbidden).SetInternal(errors.New("account signup is disabled"))
+	}
+
 	var body UserCreateBody
 	if err := (&echo.DefaultBinder{}).BindBody(c, &body); err != nil {
 		return dto.ToHttpError(err)
@@ -67,9 +74,10 @@ func (h *UserHandler) Create(c echo.Context) error {
 				return echo.NewHTTPError(http.StatusConflict).SetInternal(errors.New(fmt.Sprintf("user with email %s already exists", body.Email)))
 			}
 
-			if !h.cfg.Emails.RequireVerification {
+			if !h.cfg.Email.RequireVerification {
 				// Assign the email address to the user because it's currently unassigned and email verification is turned off.
 				email.UserID = &newUser.ID
+
 				err = h.persister.GetEmailPersisterWithConnection(tx).Update(*email)
 				if err != nil {
 					return fmt.Errorf("failed to update email address: %w", err)
@@ -77,7 +85,7 @@ func (h *UserHandler) Create(c echo.Context) error {
 			}
 		} else {
 			// The email address does not exist, create a new one.
-			if h.cfg.Emails.RequireVerification {
+			if h.cfg.Email.RequireVerification {
 				// The email can only be assigned to the user via passcode verification.
 				email = models.NewEmail(nil, body.Email)
 			} else {
@@ -90,14 +98,25 @@ func (h *UserHandler) Create(c echo.Context) error {
 			}
 		}
 
-		if !h.cfg.Emails.RequireVerification {
+		if !h.cfg.Email.RequireVerification {
 			primaryEmail := models.NewPrimaryEmail(email.ID, newUser.ID)
 			err = h.persister.GetPrimaryEmailPersisterWithConnection(tx).Create(*primaryEmail)
 			if err != nil {
 				return fmt.Errorf("failed to store primary email: %w", err)
 			}
 
-			token, err := h.sessionManager.GenerateJWT(newUser.ID)
+			emails, err := h.persister.GetEmailPersisterWithConnection(tx).FindByUserId(newUser.ID)
+			if err != nil {
+				return fmt.Errorf("failed to get email from db: %w", err)
+			}
+
+			var emailJwt *dto.EmailJwt
+			if e := emails.GetPrimary(); e != nil {
+				emailJwt = dto.JwtFromEmailModel(e)
+			}
+
+			token, _, err := h.sessionManager.GenerateJWT(newUser.ID, emailJwt)
+
 			if err != nil {
 				return fmt.Errorf("failed to generate jwt: %w", err)
 			}
@@ -132,11 +151,20 @@ func (h *UserHandler) Create(c echo.Context) error {
 			SameSite: http.SameSiteNoneMode,
 		})
 
-		return c.JSON(http.StatusOK, dto.CreateUserResponse{
+		newUserDto := dto.CreateUserResponse{
 			ID:      newUser.ID,
 			UserID:  newUser.ID,
 			EmailID: email.ID,
-		})
+		}
+
+		if !h.cfg.Email.RequireVerification {
+			err = utils.TriggerWebhooks(c, tx, events.UserCreate, admin.FromUserModel(newUser))
+			if err != nil {
+				c.Logger().Warn(err)
+			}
+		}
+
+		return c.JSON(http.StatusOK, newUserDto)
 	})
 }
 
@@ -170,6 +198,7 @@ func (h *UserHandler) Get(c echo.Context) error {
 		ID:                  user.ID,
 		WebauthnCredentials: user.WebauthnCredentials,
 		Email:               emailAddress,
+		Username:            user.GetUsername(),
 		CreatedAt:           user.CreatedAt,
 		UpdatedAt:           user.UpdatedAt,
 	})
@@ -259,6 +288,11 @@ func (h *UserHandler) Delete(c echo.Context) error {
 
 		c.SetCookie(cookie)
 
+		err = utils.TriggerWebhooks(c, tx, events.UserDelete, admin.FromUserModel(*user))
+		if err != nil {
+			c.Logger().Warn(err)
+		}
+
 		return c.NoContent(http.StatusNoContent)
 	})
 }
@@ -274,6 +308,25 @@ func (h *UserHandler) Logout(c echo.Context) error {
 	user, err := h.persister.GetUserPersister().Get(userId)
 	if err != nil {
 		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	sID, ok := sessionToken.Get("session_id")
+	if ok {
+		sessionIDString := sID.(string)
+		sessionID, err := uuid.FromString(sessionIDString)
+		if err != nil {
+			return fmt.Errorf("failed to convert session id to uuid: %w", err)
+		}
+		sessionModel, err := h.persister.GetSessionPersister().Get(sessionID)
+		if err != nil {
+			return fmt.Errorf("failed to get session from database: %w", err)
+		}
+		if sessionModel != nil {
+			err = h.persister.GetSessionPersister().Delete(*sessionModel)
+			if err != nil {
+				return fmt.Errorf("failed to delete session from database: %w", err)
+			}
+		}
 	}
 
 	err = h.auditLogger.Create(c, models.AuditLogUserLoggedOut, user, nil)

@@ -1,0 +1,61 @@
+name: Generate config JSON schema
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/config/*.go'
+      - '!backend/config/config_default.go'
+      - '!backend/config/**test.go'
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.20'
+
+      - name: Checkout backend
+        uses: actions/checkout@v4
+        with:
+          path: hanko
+
+      - name: Generate config JSON schema
+        working-directory: ./hanko/backend
+        run: |
+          go generate ./...
+          go run main.go schema generate config
+
+      - name: Create pull request
+        working-directory: ./hanko
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          if ! git diff-index --quiet HEAD; then
+            git checkout -b "chore-autogenerate-config-json-schema-${{ github.run_id }}"
+            git commit -m "chore: autogenerate config JSON schema"
+            git push origin HEAD
+            gh pr create \
+              -B main \
+              -H "chore-autogenerate-config-json-schema-${{ github.run_id }}" \
+              -t "chore: autogenerate config JSON schema" \
+              -b '# Description
+
+             Autogenerate config JSON schema. Created by Github Action.
+
+             # Additional context
+
+             Ref: `${{ github.ref }}`
+             Workflow name: `${{ github.workflow }}`
+             Job ID: `${{ github.job }}`
+             Run ID: `${{ github.run_id }}`'
+          else
+            echo "No changes detected, skipping pull request creation."
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

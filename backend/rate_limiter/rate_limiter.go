@@ -2,6 +2,7 @@ package rate_limiter
 
 import (
 	"context"
+	"fmt"
 	"github.com/gofrs/uuid"
 	"github.com/gomodule/redigo/redis"
 	"github.com/labstack/echo/v4"
@@ -53,7 +54,6 @@ func Limit(store limiter.Store, userId uuid.UUID, c echo.Context) error {
 	}
 
 	resetTime := int(math.Floor(time.Unix(0, int64(reset)).UTC().Sub(time.Now().UTC()).Seconds()))
-	log.Println(resetTime)
 
 	// Set headers (we do this regardless of whether the request is permitted).
 	c.Response().Header().Set(httplimit.HeaderRateLimitLimit, strconv.FormatUint(limit, 10))
@@ -66,4 +66,32 @@ func Limit(store limiter.Store, userId uuid.UUID, c echo.Context) error {
 		return echo.NewHTTPError(http.StatusTooManyRequests)
 	}
 	return nil
+}
+
+func Limit2(store limiter.Store, key string) (int, bool, error) {
+	// Take from the store.
+	_, _, newTokensAvailableAt, ok, err := store.Take(context.Background(), key)
+	if err != nil {
+		return -1, false, fmt.Errorf("failed to take a token from %s", key)
+	}
+
+	retryAfterSeconds := int(math.Floor(time.Unix(0, int64(newTokensAvailableAt)).UTC().Sub(time.Now().UTC()).Seconds()))
+
+	return retryAfterSeconds, ok, nil
+}
+
+func CreateRateLimitPasscodeKey(realIP, email string) string {
+	return fmt.Sprintf("passcode/%s/%s", realIP, email)
+}
+
+func CreateRateLimitPasswordKey(realIP, userId string) string {
+	return fmt.Sprintf("password/%s/%s", realIP, userId)
+}
+
+func CreateRateLimitOTPKey(realIP, userId string) string {
+	return fmt.Sprintf("otp/%s/%s", realIP, userId)
+}
+
+func CreateRateLimitTokenExchangeKey(realIP string) string {
+	return fmt.Sprintf("token_exchange/%s", realIP)
 }

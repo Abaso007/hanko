@@ -6,8 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"github.com/teamhanko/hanko/backend/config"
-	"github.com/teamhanko/hanko/backend/crypto/jwk"
-	"github.com/teamhanko/hanko/backend/session"
 	"github.com/teamhanko/hanko/backend/test"
 	"golang.org/x/crypto/bcrypt"
 	"net/http"
@@ -36,7 +34,7 @@ func (s *passwordSuite) TestPasswordHandler_Set_Create() {
 
 	cfg := &test.DefaultConfig
 	cfg.Password.Enabled = true
-	cfg.Password.MinPasswordLength = 8
+	cfg.Password.MinLength = 8
 
 	tests := []struct {
 		name         string
@@ -90,10 +88,7 @@ func (s *passwordSuite) TestPasswordHandler_Set_Create() {
 			err := s.LoadFixtures("../test/fixtures/password")
 			s.Require().NoError(err)
 
-			sessionManager := s.GetDefaultSessionManager()
-			token, err := sessionManager.GenerateJWT(currentTest.userId)
-			s.Require().NoError(err)
-			cookie, err := sessionManager.GenerateCookie(token)
+			cookie, err := generateSessionCookie(s.Storage, currentTest.userId)
 			s.Require().NoError(err)
 
 			req := httptest.NewRequest(http.MethodPut, "/password", strings.NewReader(currentTest.body))
@@ -101,7 +96,7 @@ func (s *passwordSuite) TestPasswordHandler_Set_Create() {
 			req.AddCookie(cookie)
 			rec := httptest.NewRecorder()
 
-			e := NewPublicRouter(cfg, s.Storage, nil)
+			e := NewPublicRouter(cfg, s.Storage, nil, nil)
 			e.ServeHTTP(rec, req)
 
 			s.Equal(currentTest.expectedCode, rec.Code)
@@ -171,7 +166,7 @@ func (s *passwordSuite) TestPasswordHandler_Login() {
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 
-			e := NewPublicRouter(currentTest.cfg(), s.Storage, nil)
+			e := NewPublicRouter(currentTest.cfg(), s.Storage, nil, nil)
 			e.ServeHTTP(rec, req)
 
 			if s.Equal(currentTest.expectedCode, rec.Code) {
@@ -196,15 +191,6 @@ func (s *passwordSuite) TestPasswordHandler_Login() {
 	}
 }
 
-func (s *passwordSuite) GetDefaultSessionManager() session.Manager {
-	jwkManager, err := jwk.NewDefaultManager(test.DefaultConfig.Secrets.Keys, s.Storage.GetJwkPersister())
-	s.Require().NoError(err)
-	sessionManager, err := session.NewManager(jwkManager, test.DefaultConfig)
-	s.Require().NoError(err)
-
-	return sessionManager
-}
-
 // TestMaxPasswordLength bcrypt since version 0.5.0 only accepts passwords at least 72 bytes long. This test documents this behaviour.
 func TestMaxPasswordLength(t *testing.T) {
 	tests := []struct {
@@ -227,17 +213,17 @@ func TestMaxPasswordLength(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			hash, err := bcrypt.GenerateFromPassword([]byte(test.creationPassword), 12)
-			if test.wantErr {
+	for _, passwordTest := range tests {
+		t.Run(passwordTest.name, func(t *testing.T) {
+			hash, err := bcrypt.GenerateFromPassword([]byte(passwordTest.creationPassword), 12)
+			if passwordTest.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
 
-			err = bcrypt.CompareHashAndPassword(hash, []byte(test.loginPassword))
-			if test.wantErr {
+			err = bcrypt.CompareHashAndPassword(hash, []byte(passwordTest.loginPassword))
+			if passwordTest.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)

@@ -12,25 +12,24 @@ import (
 	"github.com/teamhanko/hanko/backend/dto"
 	"github.com/teamhanko/hanko/backend/persistence"
 	"github.com/teamhanko/hanko/backend/persistence/models"
-	"github.com/teamhanko/hanko/backend/session"
+	"github.com/teamhanko/hanko/backend/webhooks/events"
+	"github.com/teamhanko/hanko/backend/webhooks/utils"
 	"net/http"
 	"strings"
 )
 
 type EmailHandler struct {
-	persister      persistence.Persister
-	cfg            *config.Config
-	sessionManager session.Manager
-	auditLogger    auditlog.Logger
+	persister   persistence.Persister
+	cfg         *config.Config
+	auditLogger auditlog.Logger
 }
 
-func NewEmailHandler(cfg *config.Config, persister persistence.Persister, sessionManager session.Manager, auditLogger auditlog.Logger) (*EmailHandler, error) {
+func NewEmailHandler(cfg *config.Config, persister persistence.Persister, auditLogger auditlog.Logger) *EmailHandler {
 	return &EmailHandler{
-		persister:      persister,
-		cfg:            cfg,
-		sessionManager: sessionManager,
-		auditLogger:    auditLogger,
-	}, nil
+		persister:   persister,
+		cfg:         cfg,
+		auditLogger: auditLogger,
+	}
 }
 
 func (h *EmailHandler) List(c echo.Context) error {
@@ -52,7 +51,7 @@ func (h *EmailHandler) List(c echo.Context) error {
 	response := make([]*dto.EmailResponse, len(emails))
 
 	for i := range emails {
-		response[i] = dto.FromEmailModel(&emails[i])
+		response[i] = dto.FromEmailModel(&emails[i], h.cfg)
 	}
 
 	return c.JSON(http.StatusOK, response)
@@ -81,7 +80,7 @@ func (h *EmailHandler) Create(c echo.Context) error {
 		return fmt.Errorf("failed to count user emails: %w", err)
 	}
 
-	if emailCount >= h.cfg.Emails.MaxNumOfAddresses {
+	if emailCount >= h.cfg.Email.Limit {
 		return echo.NewHTTPError(http.StatusConflict).SetInternal(errors.New("max number of email addresses reached"))
 	}
 
@@ -105,7 +104,7 @@ func (h *EmailHandler) Create(c echo.Context) error {
 				return echo.NewHTTPError(http.StatusBadRequest).SetInternal(errors.New("email address already exists"))
 			}
 
-			if !h.cfg.Emails.RequireVerification {
+			if !h.cfg.Email.RequireVerification {
 				// Email verification is currently not required and there is no user assigned to the existing email
 				// address. This can happen, when email verification was turned on before, because then the email
 				// address will be assigned to the user only after passcode verification. The email was left unassigned
@@ -119,7 +118,7 @@ func (h *EmailHandler) Create(c echo.Context) error {
 			}
 		} else {
 			// The email address has not been registered so far.
-			if h.cfg.Emails.RequireVerification {
+			if h.cfg.Email.RequireVerification {
 				// The email address will be assigned to the user only after passcode verification.
 				email = models.NewEmail(nil, newEmailAddress)
 			} else {
@@ -136,6 +135,19 @@ func (h *EmailHandler) Create(c echo.Context) error {
 		err = h.auditLogger.CreateWithConnection(tx, c, models.AuditLogEmailCreated, user, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create audit log: %w", err)
+		}
+
+		if !h.cfg.Email.RequireVerification {
+			var evt events.Event
+
+			if len(user.Emails) >= 1 {
+				evt = events.UserEmailCreate
+			} else {
+				evt = events.UserCreate
+			}
+
+			utils.NotifyUserChange(c, tx, h.persister, evt, userId)
+
 		}
 
 		return c.JSON(http.StatusOK, email)
@@ -197,6 +209,8 @@ func (h *EmailHandler) SetPrimaryEmail(c echo.Context) error {
 			return fmt.Errorf("failed to create audit log: %w", err)
 		}
 
+		utils.NotifyUserChange(c, tx, h.persister, events.UserEmailPrimary, userId)
+
 		return c.NoContent(http.StatusNoContent)
 	})
 }
@@ -238,6 +252,8 @@ func (h *EmailHandler) Delete(c echo.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to create audit log: %w", err)
 		}
+
+		utils.NotifyUserChange(c, tx, h.persister, events.UserEmailDelete, userId)
 
 		return c.NoContent(http.StatusNoContent)
 	})

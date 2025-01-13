@@ -7,12 +7,13 @@ import (
 	"github.com/teamhanko/hanko/backend/config"
 	hankoJwk "github.com/teamhanko/hanko/backend/crypto/jwk"
 	hankoJwt "github.com/teamhanko/hanko/backend/crypto/jwt"
+	"github.com/teamhanko/hanko/backend/dto"
 	"net/http"
 	"time"
 )
 
 type Manager interface {
-	GenerateJWT(uuid.UUID) (string, error)
+	GenerateJWT(userId uuid.UUID, userDto *dto.EmailJwt, opts ...JWTOptions) (string, jwt.Token, error)
 	Verify(string) (jwt.Token, error)
 	GenerateCookie(token string) (*http.Cookie, error)
 	DeleteCookie() (*http.Cookie, error)
@@ -35,19 +36,23 @@ type cookieConfig struct {
 	Secure   bool
 }
 
+const (
+	GeneratorCreateFailure = "failed to create session generator: %w"
+)
+
 // NewManager returns a new Manager which will be used to create and verify sessions JWTs
 func NewManager(jwkManager hankoJwk.Manager, config config.Config) (Manager, error) {
 	signatureKey, err := jwkManager.GetSigningKey()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session generator: %w", err)
+		return nil, fmt.Errorf(GeneratorCreateFailure, err)
 	}
 	verificationKeys, err := jwkManager.GetPublicKeys()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session generator: %w", err)
+		return nil, fmt.Errorf(GeneratorCreateFailure, err)
 	}
 	g, err := hankoJwt.NewGenerator(signatureKey, verificationKeys)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session generator: %w", err)
+		return nil, fmt.Errorf(GeneratorCreateFailure, err)
 	}
 
 	duration, _ := time.ParseDuration(config.Session.Lifespan) // error can be ignored, value is checked in config validation
@@ -85,7 +90,7 @@ func NewManager(jwkManager hankoJwk.Manager, config config.Config) (Manager, err
 }
 
 // GenerateJWT creates a new session JWT for the given user
-func (m *manager) GenerateJWT(userId uuid.UUID) (string, error) {
+func (m *manager) GenerateJWT(userId uuid.UUID, email *dto.EmailJwt, opts ...JWTOptions) (string, jwt.Token, error) {
 	issuedAt := time.Now()
 	expiration := issuedAt.Add(m.sessionLength)
 
@@ -94,16 +99,31 @@ func (m *manager) GenerateJWT(userId uuid.UUID) (string, error) {
 	_ = token.Set(jwt.IssuedAtKey, issuedAt)
 	_ = token.Set(jwt.ExpirationKey, expiration)
 	_ = token.Set(jwt.AudienceKey, m.audience)
+
+	sessionID, err := uuid.NewV4()
+	if err != nil {
+		return "", nil, err
+	}
+	_ = token.Set("session_id", sessionID.String())
+
+	if email != nil {
+		_ = token.Set("email", &email)
+	}
+
+	for _, opt := range opts {
+		opt(token)
+	}
+
 	if m.issuer != "" {
 		_ = token.Set(jwt.IssuerKey, m.issuer)
 	}
 
 	signed, err := m.jwtGenerator.Sign(token)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
-	return string(signed), nil
+	return string(signed), token, nil
 }
 
 // Verify verifies the given JWT and returns a parsed one if verification was successful
@@ -142,4 +162,12 @@ func (m *manager) DeleteCookie() (*http.Cookie, error) {
 		SameSite: m.cookieConfig.SameSite,
 		MaxAge:   -1,
 	}, nil
+}
+
+type JWTOptions func(token jwt.Token)
+
+func WithValue(key string, value interface{}) JWTOptions {
+	return func(jwt jwt.Token) {
+		_ = jwt.Set(key, value)
+	}
 }

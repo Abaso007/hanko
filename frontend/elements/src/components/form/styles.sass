@@ -21,6 +21,9 @@
     flex-grow: 1
     flex-basis: min-content
 
+    &.maxWidth
+      min-width: 100%
+
 // Button Styles
 .button
   @include mixins.font
@@ -29,12 +32,13 @@
   white-space: nowrap
   width: 100%
   min-width: variables.$button-min-width
-  height: variables.$item-height
+  min-height: variables.$item-height
   outline: none
   cursor: pointer
   transition: 0.1s ease-out
   flex-grow: 1
   flex-shrink: 1
+  display: inline-flex
 
   &:disabled
     cursor: default
@@ -43,6 +47,7 @@
     color: variables.$brand-contrast-color
     background: variables.$brand-color
     border-color: variables.$brand-color
+    justify-content: center
 
   &.primary:hover
     color: variables.$brand-contrast-color
@@ -63,6 +68,7 @@
     color: variables.$color
     background: variables.$background-color
     border-color: variables.$color
+    justify-content: flex-start
 
   &.secondary:hover
     color: variables.$color
@@ -86,8 +92,19 @@
     flex-grow: 0
     width: auto
 
-// Input Styles
+.caption
+  flex-grow: 1
+  flex-wrap: wrap
+  display: flex
+  justify-content: space-between
+  align-items: baseline
 
+// Last Used Styles
+.lastUsed
+ color: variables.$color-shade-1
+ font-size: smaller
+
+// Input Styles
 .inputWrapper
   flex-grow: 1
   position: relative
@@ -103,6 +120,9 @@
   color: variables.$color
   border-color: variables.$color-shade-1
   background: variables.$background-color
+
+  &.error
+    border-color: variables.$error-color
 
   padding: 0 .5rem
   outline: none

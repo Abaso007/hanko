@@ -11,13 +11,18 @@ easily integrated into any web app with as little as two lines of code.
 
 - [API features](#api-features)
 - [Running the backend](#running-the-backend)
+- [Running tests](#running-tests)
 - [Additional topics](#additional-topics)
   - [Enabling password authentication](#enabling-password-authentication)
   - [Cross-domain communication](#cross-domain-communication)
   - [Audit logs](#audit-logs)
   - [Rate Limiting](#rate-limiting)
-  - [Social logins](#social-logins)
+  - [Social connections](#social-connections)
+    - [Built-in providers](#built-in-providers)
+    - [Custom OAuth/OIDC providers](#custom-oauthoidc-providers)
+    - [Account linking](#account-linking)
   - [User import](#user-import)
+  - [Webhooks](#webhooks)
 - [API specification](#api-specification)
 - [Configuration reference](#configuration-reference)
 - [License](#license)
@@ -30,10 +35,12 @@ easily integrated into any web app with as little as two lines of code.
 - Email verification
 - JWT management
 - User management
+- 3rd-party identity providers
+- Webhooks
+- SAML
 
 ### Upcoming features
 
-- Exponential backoff for password attempts and passcode email sending
 - 2FA configurations (optional, mandatory)
 
 ## Running the backend
@@ -50,7 +57,7 @@ To get the Hanko backend up and running you need to:
 5. [Configure JSON Web Key Set generation](#configure-json-web-key-set-generation)
 6. [Configure WebAuthn](#configure-webauthn)
 7. [Configure CORS](#configure-cors)
-8. [Start the backend](#run-the-backend)
+8. [Start the backend](#start-the-backend)
 
 ### Run a database
 
@@ -167,7 +174,8 @@ a user/password, so a minimal configuration in your configuration file (`backend
 your own `*.yaml` file) could contain the following:
 
 ```yaml
-passcode:
+email_delivery:
+  enabled: true
   email:
     from_address: no-reply@example.com
     from_name: Example Application
@@ -185,18 +193,13 @@ service:
 ```
 
 In a production setting you would rather use a self-hosted SMTP server or a managed service like AWS SES. In that case
-you need to supply the `passcode.smtp.host`, `passcode.smtp.port` as well as the `passcode.smtp.user`,
-`passcode.smtp.password` settings according to your server/service settings.
-
-> **Note** The `passcode.smtp.host` configuration entry is required for the service to start up.
-> Only a check for a non-empty string value will be performed. Also: SMTP-connection related values are not
-> verified, i.e. the application may start but no emails will be sent and your users might not be able to log in if
-> the provided values do not describe an existing SMTP server.
+you need to supply the `email_delivery.smtp.host`, `email_delivery.smtp.port` as well as the `email_delivery.smtp.user`,
+`email_delivery.smtp.password` settings according to your server/service settings.
 
 ### Configure JSON Web Key Set generation
 
 The API uses [JSON Web Tokens](https://www.rfc-editor.org/rfc/rfc7519.html) (JWTs) for
-[authentication](https://docs.hanko.io/api/public#section/Authentication).
+[authentication](https://docs.hanko.io/api-reference/public/introduction).
 JWTs are verified using [JSON Web Keys](https://www.rfc-editor.org/rfc/rfc7517) (JWK).
 JWKs are created internally by setting `secrets.keys` options in the
 configuration file (`backend/config/config.yaml` or your own `*.yaml` file):
@@ -213,7 +216,7 @@ Keys secrets are used to en- and decrypt the JWKs which get used to sign the JWT
 For every key a JWK is generated, encrypted with the key and persisted in the database.
 
 The Hanko backend API publishes public cryptographic keys as a JWK set through the `.well-known/jwks.json`
-[endpoint](https://docs.hanko.io/api/public#tag/.well-known/operation/getJwks) to enable clients to verify token
+[endpoint](https://docs.hanko.io/api-reference/public/well-known/get-json-web-key-set) to enable clients to verify token
 signatures.
 
 ### Configure WebAuthn
@@ -326,12 +329,14 @@ endpoints). These can be started separately or in a single command.
 docker run --mount type=bind,source=<PATH-TO-CONFIG-FILE>,target=/config/config.yaml -p 8000:8000 -it ghcr.io/teamhanko/hanko:latest serve public
 ```
 
-> **Note** The `<PATH-TO-CONFIG-FILE>` must be an absolute path to your config file created above.
+##### Using pre-built binaries
 
-The service is now available at `localhost:8000`.
+Each [GitHub release](https://github.com/teamhanko/hanko/releases) (> 0.9.0) has `hanko`'s binary assets uploaded to it. Alternatively you can use
+a tool like [eget](https://github.com/zyedidia/eget) to install binaries from releases on GitHub:
 
-`8000` is the default port for the public API. It can be [customized](./docs/Config.md) in the configuration through
-the `server.public.address` option.
+```bash
+eget teamhanko/hanko
+```
 
 ##### From source
 
@@ -345,13 +350,20 @@ Then run:
 ./hanko serve public --config <PATH-TO-CONFIG-FILE>
 ```
 
+> **Note** The `<PATH-TO-CONFIG-FILE>` must be an absolute path to your config file created above.
+
+`8000` is the default port for the public API. It can
+be [customized](https://github.com/teamhanko/hanko/wiki/hanko-properties-server-properties-public#address) in the
+configuration through the `server.public.address` option.
+
 The service is now available at `localhost:8000`.
 
 #### Start the admin API
 
 In the usage section above we only started the public API. Use the command below to start the admin API. The default
-port is `8001`, but can be [customized](./docs/Config.md) in the configuration through the
-`server.admin.address` option.
+port is `8001`, but can be
+[customized](https://github.com/teamhanko/hanko/wiki/hanko-properties-server-properties-admin) in the configuration
+through the `server.admin.address` option.
 
 ```shell
 serve admin
@@ -365,6 +377,14 @@ Use this command to start the public and admin API together:
 
 ```shell
 serve all
+```
+
+## Running tests
+
+You can run the unit tests by running the following command within the `backend` directory:
+
+```bash
+go test -v ./...
 ```
 
 ## Additional topics
@@ -415,11 +435,51 @@ It uses a combination of user-id/IP to mitigate DoS attacks on user accounts. Yo
 In production systems, you may want to hide the
 Hanko service behind a proxy or gateway (e.g. Kong, Traefik) to provide additional network-based rate limiting.
 
-### Social Logins
+### Social connections
 
 Hanko supports OAuth-based ([authorization code flow](https://www.rfc-editor.org/rfc/rfc6749#section-1.3.1)) third
-party provider logins. Please view the official [docs](https://docs.hanko.io/guides/social) for a list of supported
-providers and guides.
+party provider logins. The `third_party` configuration
+[option](https://github.com/teamhanko/hanko/wiki/config-properties-third_party) contains all relevant configuration.
+This includes options for setting up redirect URLs (in case of success or error on authentication with a provider) that
+apply to both [built-in](#built-in-providers) and
+[custom](#custom-oauthoidc-providers) providers.
+
+
+#### Built-in providers
+
+Built-in providers can be configured through the `third_party.providers` configuration [option](https://github.com/teamhanko/hanko/wiki/config-properties-third_party).
+They must be explicitly `enabled` (i.e. providers are disabled default).
+All provider configurations require provider credentials in the form of a client ID (`client_id`)
+and a client secret (`secret`). See the guides in the official documentation for instructions on how to obtain these:
+
+- [Apple](https://docs.hanko.io/guides/authentication-methods/oauth/apple)
+- [Discord](https://docs.hanko.io/guides/authentication-methods/oauth/discord)
+- [GitHub](https://docs.hanko.io/guides/authentication-methods/oauth/github)
+- [Google](https://docs.hanko.io/guides/authentication-methods/oauth/google)
+- [LinkedIn](https://docs.hanko.io/guides/authentication-methods/oauth/linkedin)
+- [Microsoft](https://docs.hanko.io/guides/authentication-methods/oauth/microsoft)
+
+#### Custom OAuth/OIDC providers
+
+Custom providers can be configured through the `third_party.custom_providers` configuration
+[option](https://github.com/teamhanko/hanko/wiki/config-properties-third_party-properties-custom_providers).
+Like built-in providers they must be explicitly `enabled` and require a `client_id` and `secret`, which must
+be obtained from the respective provider.
+Custom providers can use either OAuth or OIDC. OIDC providers can be configured to use
+[OIDC Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html) by setting the `use_discovery`
+option to `true`. An `issuer` must be configured too in that case. Otherwise both OAuth and OIDC providers
+can manually define required endpoints (`authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`).
+`scopes` must be explicitly defined (with `openid` being the minimum requirement in case of OIDC providers).
+
+#### Account linking
+
+The `allow_linking` configuration option for built-in and custom providers determines whether automatic account linking for this provider
+is activated. Note that account linking is based on e-mail addresses and OAuth providers may allow account holders to
+use unverified e-mail addresses or may not provide any information at all about the verification status of e-mail
+addresses. This poses a security risk and potentially allows bad actors to hijack existing Hanko
+accounts associated with the same address. It is therefore recommended to make sure you trust the provider and to
+also enable `emails.require_verification` in your configuration to ensure that only verified third party provider
+addresses may be used.
 
 ### User import
 You can import an existing user pool into Hanko using json in the following format:
@@ -457,14 +517,72 @@ To import users run:
 > hanko user import -i ./path/to/import_file.json
 
 
+### Webhooks
+
+Webhooks are an easy way to get informed about changes in your Hanko instance (e.g. user or email updates).
+To use webhooks you have to provide an endpoint on your application which can process the events. Please be aware that your
+endpoint need to respond with an HTTP status code 200. Else-wise the delivery of the event will not be counted as successful.
+
+#### Events
+When a webhook is triggered it will send you a **JSON** body which contains the event and a jwt.
+The JWT contains 2 custom claims:
+
+* **data**: contains the whole object for which the change was made. (e.g.: the whole user object when an email or user is changed/created/deleted)
+* **evt**: the event for which the webhook was triggered
+
+A typical webhook event looks like:
+
+```json
+{
+  "token": "the-jwt-token-which-contains-the-data",
+  "event": "name of the event"
+}
+```
+
+To decode the webhook you can use the JWKs created in [Configure JSON Web Key Set generation](#configure-json-web-key-set-generation)
+
+#### Event Types
+
+Hanko sends webhooks for the following event types:
+
+| Event                     | Triggers on                                                                                        |
+|---------------------------|----------------------------------------------------------------------------------------------------|
+| user                      | user creation, user deletion, user update, email creation, email deletion, change of primary email |
+| user.create               | user creation                                                                                      |
+| user.delete               | user deletion                                                                                      |
+| user.update               | user update, email creation, email deletion, change of primary email                               |
+| user.update.email         | email creation, email deletion, change of primary email                                            |
+| user.update.email.create  | email creation                                                                                     |
+| user.update.email.delete  | email deletion                                                                                     |
+| user.update.email.primary | change of primary email                                                                            |
+
+As you can see, events can have subevents. You are able to filter which events you want to receive by either selecting
+a parent event when you want to receive all subevents or selecting specific subevents.
+
+#### Enabling Webhooks
+
+You can activate webhooks by adding the following snippet to your configuration file:
+
+```yaml
+webhooks:
+  enabled: true
+  hooks:
+    - callback: <YOUR WEBHOOK ENDPOINT>
+      events:
+        - user
+```
+
 ## API specification
 
-- [Hanko Public API](https://docs.hanko.io/api/public)
-- [Hanko Admin API](https://docs.hanko.io/api/admin)
+- [Hanko Public API](https://docs.hanko.io/api-reference/public/introduction)
+- [Hanko Admin API](https://docs.hanko.io/api-reference/admin/introduction)
 
 ## Configuration reference
 
-[Configuration reference](./docs/Config.md)
+- [Using configuration file](https://github.com/teamhanko/hanko/wiki/Using-configuration-file)
+- [Using environment variables](https://github.com/teamhanko/hanko/wiki/Using-environment-variables)
+- [Configuration reference](https://github.com/teamhanko/hanko/wiki/hanko)
+
 
 ## License
 

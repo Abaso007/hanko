@@ -1,6 +1,13 @@
 package handler
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
+	"testing"
+	"time"
+
 	"github.com/labstack/echo/v4"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	jwk2 "github.com/lestrrat-go/jwx/v2/jwk"
@@ -12,12 +19,7 @@ import (
 	"github.com/teamhanko/hanko/backend/dto"
 	"github.com/teamhanko/hanko/backend/session"
 	"github.com/teamhanko/hanko/backend/test"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"strconv"
-	"testing"
-	"time"
+	"github.com/teamhanko/hanko/backend/utils"
 )
 
 func TestThirdPartySuite(t *testing.T) {
@@ -30,6 +32,7 @@ type thirdPartySuite struct {
 }
 
 func (s *thirdPartySuite) setUpContext(request *http.Request) (echo.Context, *httptest.ResponseRecorder) {
+	s.T().Helper()
 	e := echo.New()
 	e.Validator = dto.NewCustomValidator()
 	rec := httptest.NewRecorder()
@@ -38,6 +41,7 @@ func (s *thirdPartySuite) setUpContext(request *http.Request) (echo.Context, *ht
 }
 
 func (s *thirdPartySuite) setUpHandler(cfg *config.Config) *ThirdPartyHandler {
+	s.T().Helper()
 	auditLogger := auditlog.NewLogger(s.Storage, cfg.AuditLog)
 
 	jwkMngr, err := jwk.NewDefaultManager(cfg.Secrets.Keys, s.Storage.GetJwkPersister())
@@ -51,37 +55,55 @@ func (s *thirdPartySuite) setUpHandler(cfg *config.Config) *ThirdPartyHandler {
 }
 
 func (s *thirdPartySuite) setUpConfig(enabledProviders []string, allowedRedirectURLs []string) *config.Config {
-	cfg := &config.Config{
-		ThirdParty: config.ThirdParty{
-			Providers: config.ThirdPartyProviders{
-				Apple: config.ThirdPartyProvider{
-					Enabled:  false,
-					ClientID: "fakeClientID",
-					Secret:   "fakeClientSecret",
-				},
-				Google: config.ThirdPartyProvider{
-					Enabled:  false,
-					ClientID: "fakeClientID",
-					Secret:   "fakeClientSecret",
-				}, GitHub: config.ThirdPartyProvider{
-					Enabled:  false,
-					ClientID: "fakeClientID",
-					Secret:   "fakeClientSecret",
-				}},
-			ErrorRedirectURL:    "https://error.test.example",
-			RedirectURL:         "https://api.test.example/callback",
-			AllowedRedirectURLS: allowedRedirectURLs,
+	s.T().Helper()
+	cfg := config.DefaultConfig()
+	cfg.ThirdParty = config.ThirdParty{
+		Providers: config.ThirdPartyProviders{
+			Apple: config.ThirdPartyProvider{
+				Name:         "apple",
+				Enabled:      false,
+				ClientID:     "fakeClientID",
+				Secret:       "fakeClientSecret",
+				AllowLinking: true,
+			},
+			Google: config.ThirdPartyProvider{
+				Name:         "google",
+				Enabled:      false,
+				ClientID:     "fakeClientID",
+				Secret:       "fakeClientSecret",
+				AllowLinking: true,
+			},
+			GitHub: config.ThirdPartyProvider{
+				Name:         "github",
+				Enabled:      false,
+				ClientID:     "fakeClientID",
+				Secret:       "fakeClientSecret",
+				AllowLinking: true,
+			},
+			Discord: config.ThirdPartyProvider{
+				Name:         "discord",
+				Enabled:      false,
+				ClientID:     "fakeClientID",
+				Secret:       "fakeClientSecret",
+				AllowLinking: true,
+			},
+			Microsoft: config.ThirdPartyProvider{
+				Name:         "microsoft",
+				Enabled:      false,
+				ClientID:     "fakeClientID",
+				Secret:       "fakeClientSecret",
+				AllowLinking: false,
+			},
 		},
-		Secrets: config.Secrets{
-			Keys: []string{"thirty-two-byte-long-test-secret"},
-		},
-		AuditLog: config.AuditLog{
-			Storage: config.AuditLogStorage{Enabled: true},
-		},
-		Emails: config.Emails{
-			MaxNumOfAddresses: 5,
-		},
+		ErrorRedirectURL:    "https://error.test.example",
+		RedirectURL:         "https://api.test.example/callback",
+		AllowedRedirectURLS: allowedRedirectURLs,
 	}
+
+	cfg.AuditLog.Storage.Enabled = true
+	cfg.AuditLog.Mask = false
+	cfg.Email.Limit = 5
+	cfg.Account.AllowSignup = true
 
 	for _, provider := range enabledProviders {
 		switch provider {
@@ -91,6 +113,10 @@ func (s *thirdPartySuite) setUpConfig(enabledProviders []string, allowedRedirect
 			cfg.ThirdParty.Providers.Google.Enabled = true
 		case "github":
 			cfg.ThirdParty.Providers.GitHub.Enabled = true
+		case "discord":
+			cfg.ThirdParty.Providers.Discord.Enabled = true
+		case "microsoft":
+			cfg.ThirdParty.Providers.Microsoft.Enabled = true
 		}
 	}
 
@@ -101,6 +127,7 @@ func (s *thirdPartySuite) setUpConfig(enabledProviders []string, allowedRedirect
 }
 
 func (s *thirdPartySuite) setUpFakeJwkSet() jwk2.Set {
+	s.T().Helper()
 	generator := test.JwkManager{}
 	keySet, err := generator.GetPublicKeys()
 	s.Require().NoError(err)
@@ -108,6 +135,7 @@ func (s *thirdPartySuite) setUpFakeJwkSet() jwk2.Set {
 }
 
 func (s *thirdPartySuite) setUpAppleIdToken(sub, aud, email string, emailVerified bool) string {
+	s.T().Helper()
 	token := jwt.New()
 	_ = token.Set(jwt.SubjectKey, sub)
 	_ = token.Set(jwt.IssuedAtKey, time.Now().UTC())
@@ -126,16 +154,38 @@ func (s *thirdPartySuite) setUpAppleIdToken(sub, aud, email string, emailVerifie
 	return string(signedToken)
 }
 
+func (s *thirdPartySuite) setUpMicrosoftIdToken(sub, aud, email string, edov bool) string {
+	s.T().Helper()
+	token := jwt.New()
+	_ = token.Set(jwt.SubjectKey, sub)
+	_ = token.Set(jwt.IssuedAtKey, time.Now().UTC())
+	_ = token.Set(jwt.IssuerKey, "https://login.microsoftonline.com/0ec22c9c-397e-484d-8edc-6212147ebe5b/v2.0")
+	_ = token.Set(jwt.AudienceKey, aud)
+	_ = token.Set("email", email)
+	_ = token.Set("xms_edov", edov)
+
+	generator := test.JwkManager{}
+	signingKey, err := generator.GetSigningKey()
+	s.Require().NoError(err)
+
+	signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.RS256, signingKey))
+	s.Require().NoError(err)
+
+	return string(signedToken)
+}
+
 func (s *thirdPartySuite) assertLocationHeaderHasToken(rec *httptest.ResponseRecorder) {
+	s.T().Helper()
 	location, err := url.Parse(rec.Header().Get("Location"))
 	s.NoError(err)
-	s.True(location.Query().Has(HankoTokenQuery))
-	s.NotEmpty(location.Query().Get(HankoTokenQuery))
+	s.True(location.Query().Has(utils.HankoTokenQuery))
+	s.NotEmpty(location.Query().Get(utils.HankoTokenQuery))
 }
 
 func (s *thirdPartySuite) assertStateCookieRemoved(rec *httptest.ResponseRecorder) {
+	s.T().Helper()
 	cookies := rec.Result().Cookies()
 	s.Len(cookies, 1)
-	s.Equal(HankoThirdpartyStateCookie, cookies[0].Name)
+	s.Equal(utils.HankoThirdpartyStateCookie, cookies[0].Name)
 	s.Equal(-1, cookies[0].MaxAge)
 }

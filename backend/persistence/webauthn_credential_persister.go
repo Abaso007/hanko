@@ -14,7 +14,7 @@ type WebauthnCredentialPersister interface {
 	Create(models.WebauthnCredential) error
 	Update(models.WebauthnCredential) error
 	Delete(models.WebauthnCredential) error
-	GetFromUser(uuid.UUID) ([]models.WebauthnCredential, error)
+	GetFromUser(uuid.UUID) (models.WebauthnCredentials, error)
 }
 
 type webauthnCredentialPersister struct {
@@ -27,7 +27,7 @@ func NewWebauthnCredentialPersister(db *pop.Connection) WebauthnCredentialPersis
 
 func (p *webauthnCredentialPersister) Get(id string) (*models.WebauthnCredential, error) {
 	credential := models.WebauthnCredential{}
-	err := p.db.Find(&credential, id)
+	err := p.db.Eager().Find(&credential, id)
 	if err != nil && errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -41,6 +41,16 @@ func (p *webauthnCredentialPersister) Get(id string) (*models.WebauthnCredential
 // Create stores a new `WebauthnCredential`. Please run inside a transaction, since `Transports` associated with the
 // credential are stored separately in another table.
 func (p *webauthnCredentialPersister) Create(credential models.WebauthnCredential) error {
+	if credential.UserHandle != nil {
+		vErr, err := p.db.ValidateAndCreate(credential.UserHandle)
+		if err != nil {
+			return fmt.Errorf("failed to store credential user handle: %w", err)
+		}
+		if vErr != nil && vErr.HasAny() {
+			return fmt.Errorf("credential object validation failed: %w", vErr)
+		}
+	}
+
 	vErr, err := p.db.ValidateAndCreate(&credential)
 	if err != nil {
 		return fmt.Errorf("failed to store credential: %w", err)
@@ -86,7 +96,7 @@ func (p *webauthnCredentialPersister) Delete(credential models.WebauthnCredentia
 	return nil
 }
 
-func (p *webauthnCredentialPersister) GetFromUser(userId uuid.UUID) ([]models.WebauthnCredential, error) {
+func (p *webauthnCredentialPersister) GetFromUser(userId uuid.UUID) (models.WebauthnCredentials, error) {
 	var credentials []models.WebauthnCredential
 	err := p.db.Eager().Where("user_id = ?", &userId).Order("created_at asc").All(&credentials)
 	if err != nil && errors.Is(err, sql.ErrNoRows) {

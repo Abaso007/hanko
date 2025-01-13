@@ -1,5 +1,5 @@
-passcode:
-  smtp:
+smtp:
+    port: "465"
     host: smtp.example.com
     user: example
     password: example
@@ -10,3 +10,4 @@ secrets:
     - abcedfghijklmnopqrstuvwxyz
 service:
   name: Hanko Authentication Service
+

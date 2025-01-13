@@ -38,20 +38,20 @@ that provides the underlying functionalities.
 
 ## Features
 
-* User Authentication: Provides a secure and user-friendly way to handle user authentication within web applications.
-* Authentication Flows: Supports various authentication flows, including passwordless authentication and biometric
+- User Authentication: Provides a secure and user-friendly way to handle user authentication within web applications.
+- Authentication Flows: Supports various authentication flows, including passwordless authentication and biometric
   authentication.
-* Web Component Library: Offers customizable web components that can be easily integrated into web applications.
-* Profile Management: Allows users to view and manage their profile information through the profile component.
-* Event Handling: Provides event listeners for authentication and session-related events, enabling customization and
+- Web Component Library: Offers customizable web components that can be easily integrated into web applications.
+- Profile Management: Allows users to view and manage their profile information through the profile component.
+- Event Handling: Provides event listeners for authentication and session-related events, enabling customization and
   control over the user experience.
-* Localization and Internationalization: Supports multiple languages and provides translation options for a global user
+- Localization and Internationalization: Supports multiple languages and provides translation options for a global user
   base.
-* Integration Flexibility: Offers versatile choices for integration, including CDN or npm. It supports both TypeScript
+- Integration Flexibility: Offers versatile choices for integration, including CDN or npm. It supports both TypeScript
   and non-TypeScript environments, allowing flexibility based on the project requirements.
-* Customization: Enables customization of visual styles, branding, and user interface elements to align with the overall
+- Customization: Enables customization of visual styles, branding, and user interface elements to align with the overall
   application design.
-* Documentation and Support: Offers documentation, example apps, frontend framework integration guides and support via
+- Documentation and Support: Offers documentation, example apps, frontend framework integration guides and support via
   Slack to assist with integration and troubleshooting.
 
 ## Installation
@@ -74,7 +74,7 @@ pnpm install @teamhanko/hanko-elements
 
 To integrate Hanko, you need to import and call the `register()` function from the `hanko-elements` module. Once this is
 done, you can use the web components in your HTML code. For a functioning page, at least the `<hanko-auth>` element
-should be placed, so the users can sign in, and also, a handler for the "onAuthFlowCompleted" event should be added, to
+should be placed, so the users can sign in, and also, a handler for the "onSessionCreated" event should be added, to
 customize the behaviour after the authentication flow has been completed (e.g. redirect to another page). These steps
 will be described in the following sections.
 
@@ -95,7 +95,7 @@ If you prefer using a CDN, you can include a script tag with the import statemen
 
 ```html
 <script type="module">
-    import {register} from "https://cdn.jsdelivr.net/npm/@teamhanko/hanko-elements/dist/elements.js";
+  import { register } from "https://cdn.jsdelivr.net/npm/@teamhanko/hanko-elements/dist/elements.js";
 </script>
 ```
 
@@ -105,32 +105,37 @@ After importing the `register()` function, call it with the URL of the Hanko API
 elements with the browser's `CustomElementRegistry`.
 
 ```javascript
-const {hanko} = await register("https://hanko.yourdomain.com");
+const { hanko } = await register("https://hanko.yourdomain.com");
 ```
 
 You can also pass certain options:
 
 ```javascript
 const defaultOptions = {
-    shadow: true,                    // Set to false if you do not want the web component to be attached to the shadow DOM.
-    injectStyles: true,              // Set to false if you do not want to inject any default styles.
-    enablePasskeys: true,            // Set to false if you do not want to display passkey-related content.
-    hidePasskeyButtonOnLogin: false, // Hides the button to sign in with a passkey on the login page.
-    translations: null,              // Additional translations can be added here. English is used when the option is not
-                                     // present or set to `null`, whereas setting an empty object `{}` prevents the elements
-                                     // from displaying any translations.
-    translationsLocation: "/i18n",   // The URL or path where the translation files are located.
-    fallbackLanguage: "en",          // The fallback language to be used if a translation is not available.
-    storageKey: "hanko"              // The name of the cookie the session token is stored in and the prefix / name of local storage keys
+  shadow: true,                    // Set to false if you do not want the web component to be attached to the shadow DOM.
+  injectStyles: true,              // Set to false if you do not want to inject any default styles.
+  enablePasskeys: true,            // Set to false if you do not want to display passkey-related content.
+  hidePasskeyButtonOnLogin: false, // Hides the button to sign in with a passkey on the login page.
+  translations: null,              // Additional translations can be added here. English is used when the option is not
+                                   // present or set to `null`, whereas setting an empty object `{}` prevents the elements
+                                   // from displaying any translations.
+  translationsLocation: "/i18n",   // The URL or path where the translation files are located.
+  fallbackLanguage: "en",          // The fallback language to be used if a translation is not available.
+  storageKey: "hanko",             // The name of the cookie the session token is stored in and the prefix / name of local storage keys
+  cookieDomain: undefined,         // The domain where the cookie set from the SDK is available. When undefined,
+                                   // defaults to the domain of the page where the cookie was created.
+  cookieSameSite: "lax",           // Specify whether/when cookies are sent with cross-site requests.
 };
 
-const {hanko} = await register("https://hanko.yourdomain.com", defaultOptions);
+const { hanko } = await register(
+  "https://hanko.yourdomain.com",
+  defaultOptions
+);
 ```
 
 Replace "https://hanko.yourdomain.com" with the actual URL of your Hanko API.
 
 ### Embedding the Web Components
-
 
 If you have followed the steps mentioned above, you should now be able to place the web components anywhere in the body
 of your HTML. A minimal example would look like this:
@@ -139,32 +144,50 @@ of your HTML. A minimal example would look like this:
 <hanko-auth id="authComponent"></hanko-auth>
 
 <script type="module">
-    import {register} from "https://cdn.jsdelivr.net/npm/@teamhanko/hanko-elements/dist/elements.js";
+  import { register } from "https://cdn.jsdelivr.net/npm/@teamhanko/hanko-elements/dist/elements.js";
 
-    await register("https://hanko.yourdomain.com");
+  await register("https://hanko.yourdomain.com");
 
-    const authComponent = document.getElementById("authComponent");
-    authComponent.addEventListener("onAuthFlowCompleted", () => {
-        // redirect to a different page
-    });
+  const authComponent = document.getElementById("authComponent");
+  authComponent.addEventListener("onSessionCreated", () => {
+    // redirect to a different page
+  });
 </script>
 ```
 
 The individual web component are described in the following sections.
 
-#### &lt;hanko-auth&gt;
+#### &lt;hanko-auth&gt;, &lt;hanko-login&gt; and &lt;hanko-registration&gt;
 
-A web component that handles user login and user registration.
+These three web components offer a user-friendly interface for user login or registration. The difference between
+the components is, that `<hanko-auth>` has the ability to switch between the login and
+registration UI, whereas `<hanko-login>` is dedicated to the login and `<hanko-registration>`
+to the registration only.
 
 ##### Markup
+
+Combined UI for login and registration:
 
 ```html
 <hanko-auth></hanko-auth>
 ```
 
+Dedicated UI for the login:
+
+```html
+<hanko-login></hanko-login>
+```
+
+Dedicated UI for the registration:
+
+```html
+<hanko-registration></hanko-registration>
+```
+
 ##### Attributes
 
 - `prefilled-email` Used to prefill the email input field.
+- `prefilled-username` Used to prefill the username input field.
 - `lang` Used to specify the language of the content within the element. See [Translations](#translations).
 - `experimental` A space-separated list of experimental features to be enabled.
   See [experimental features](#experimental-features).
@@ -194,8 +217,10 @@ handler via the `frontend-sdk` (see next section).
 ```html
 <hanko-events id="events"></hanko-events>
 <script>
-    document.getElementById("events").addEventListener("onAuthFlowCompleted", console.log);
-    // more events are available (see "frontend-sdk" docs)...
+  document
+    .getElementById("events")
+    .addEventListener("onSessionCreated", console.log);
+  // more events are available (see "frontend-sdk" docs)...
 </script>
 ```
 
@@ -208,7 +233,7 @@ the `register()` function, but please take a look into the
 Note that you can create a `hanko-frontend-sdk` instance without having to register the web components as follows:
 
 ```js
-import {Hanko} from "@teamhanko/hanko-elements";
+import { Hanko } from "@teamhanko/hanko-elements";
 
 const hanko = new Hanko("https://hanko.yourdomain.com");
 ```
@@ -218,38 +243,28 @@ const hanko = new Hanko("https://hanko.yourdomain.com");
 It is possible to bind callbacks to different custom events in use of the SDKs event listener functions.
 The callback function will be called when the event happens and an object will be passed in, containing event details.
 
-##### Auth Flow Completed
-
-Will be triggered after a session has been created and the user has completed possible
-additional steps (e.g. passkey registration or password recovery) via the `<hanko-auth>` element.
-
-```js
-hanko.onAuthFlowCompleted((authFlowCompletedDetail) => {
-    // Login, registration or recovery has been completed successfully. You can now take control and redirect the
-    // user to protected pages.
-    console.info(`User successfully completed the registration or authorization process (user-id: "${authFlowCompletedDetail.userID}")`);
-})
-```
-
 ##### Session Created
 
-Will be triggered before the "hanko-auth-flow-completed" happens, as soon as the user is technically logged in. It will
-also be triggered when the user logs in via another browser window. The event can be used to obtain the JWT.
+Will be triggered after a session has been created and the user has completed possible additional steps (e.g. passkey
+registration or password recovery). It will also be triggered when the user logs in via another browser window. The
+event can be used to obtain the JWT.
 
 Please note, that the JWT is only available, when the Hanko-API configuration allows to obtain the JWT. When using
 Hanko-Cloud the JWT is always present, for self-hosted Hanko-APIs you can restrict the cookie to be readable by the
 backend only, as long as your backend runs under the same domain as your frontend. To do so, make sure the config
 parameter "session.enable_auth_token_header" is turned off via the
-[Hanko-API configuration](https://github.com/teamhanko/hanko/blob/main/backend/docs/Config.md). If you want the JWT to
+[Hanko-API configuration](https://github.com/teamhanko/hanko/wiki). If you want the JWT to
 be contained in the event details, you need to turn on "session.enable_auth_token_header" when using a cross-domain
 setup. When it's a same-domain setup you need to turn off "session.cookie.http_only" to make the JWT accessible to the
 frontend.
 
 ```js
 hanko.onSessionCreated((sessionDetail) => {
-    // A new JWT has been issued.
-    console.info(`Session created or updated (user-id: "${sessionDetail.userID}", jwt: ${sessionDetail.jwt})`);
-})
+  // A new JWT has been issued.
+  console.info(
+    `Session created or updated (jwt: ${sessionDetail.jwt})`
+  );
+});
 ```
 
 ##### Session Expired
@@ -259,9 +274,9 @@ the user has logged out, or deleted the account.
 
 ```js
 hanko.onSessionExpired(() => {
-    // You can redirect the user to a login page or show the `<hanko-auth>` element, or to prompt the user to log in again.
-    console.info("Session expired");
-})
+  // You can redirect the user to a login page or show the `<hanko-auth>` element, or to prompt the user to log in again.
+  console.info("Session expired");
+});
 ```
 
 ##### User Logged Out
@@ -271,9 +286,9 @@ triggered at the same time.
 
 ```js
 hanko.onUserLoggedOut(() => {
-    // You can redirect the user to a login page or show the `<hanko-auth>` element.
-    console.info("User logged out");
-})
+  // You can redirect the user to a login page or show the `<hanko-auth>` element.
+  console.info("User logged out");
+});
 ```
 
 ##### User Deleted
@@ -283,9 +298,9 @@ be triggered at the same time.
 
 ```js
 hanko.onUserDeleted(() => {
-    // You can redirect the user to a login page or show the `<hanko-auth>` element.
-    console.info("User has been deleted");
-})
+  // You can redirect the user to a login page or show the `<hanko-auth>` element.
+  console.info("User has been deleted");
+});
 ```
 
 To learn what else you can do, check out the
@@ -305,7 +320,7 @@ Getting the session details:
 const session = hanko.session.get();
 
 if (session) {
-    console.info(`userID: ${session.userID}, jwt: ${session.jwt}`);
+  console.info(`userID: ${session.userID}, jwt: ${session.jwt}`);
 }
 ```
 
@@ -328,70 +343,71 @@ await hanko.user.logout();
 ```
 
 To learn how error handling works and what else you can do with SDK, take a look into
-the [frontend-sdk docs](https://docs.hanko.io/jsdoc/hanko-frontend-sdk/).
+the [frontend-sdk docs](https://teamhanko.github.io/hanko/jsdoc/hanko-frontend-sdk/).
 
 ## UI Customization
 
 ### CSS Variables
 
-CSS variables can be used to style the `hanko-auth` and  `hanko-profile` elements to your needs. A list of all CSS
+CSS variables can be used to style the `hanko-auth` and `hanko-profile` elements to your needs. A list of all CSS
 variables including default values can be found below:
 
 ```css
-hanko-auth, hanko-profile {
-    /* Color Scheme */
-    --color: #171717;
-    --color-shade-1: #8f9095;
-    --color-shade-2: #e5e6ef;
+hanko-auth,
+hanko-profile {
+  /* Color Scheme */
+  --color: #333333;
+  --color-shade-1: #8f9095;
+  --color-shade-2: #e5e6ef;
 
-    --brand-color: #506cf0;
-    --brand-color-shade-1: #6b84fb;
-    --brand-contrast-color: white;
+  --brand-color: #506cf0;
+  --brand-color-shade-1: #6b84fb;
+  --brand-contrast-color: white;
 
-    --background-color: white;
-    --error-color: #e82020;
-    --link-color: #506cf0;
+  --background-color: white;
+  --error-color: #e82020;
+  --link-color: #506cf0;
 
-    /* Font Styles */
-    --font-weight: 400;
-    --font-size: 14px;
-    --font-family: sans-serif;
+  /* Font Styles */
+  --font-weight: 400;
+  --font-size: 16px;
+  --font-family: sans-serif;
 
-    /* Border Styles */
-    --border-radius: 4px;
-    --border-style: solid;
-    --border-width: 1px;
+  /* Border Styles */
+  --border-radius: 8px;
+  --border-style: solid;
+  --border-width: 1px;
 
-    /* Item Styles */
-    --item-height: 34px;
-    --item-margin: .5rem 0;
+  /* Item Styles */
+  --item-height: 34px;
+  --item-margin: 0.5rem 0;
 
-    /* Container Styles */
-    --container-padding: 0;
-    --container-max-width: 600px;
+  /* Container Styles */
+  --container-padding: 30px;
+  --container-max-width: 410px;
 
-    /* Headline Styles */
-    --headline1-font-size: 24px;
-    --headline1-font-weight: 600;
-    --headline1-margin: 0 0 .5rem;
+  /* Headline Styles */
+  --headline1-font-size: 24px;
+  --headline1-font-weight: 600;
+  --headline1-margin: 0 0 1rem;
 
-    --headline2-font-size: 14px;
-    --headline2-font-weight: 600;
-    --headline2-margin: 1rem 0 .25rem;
+  --headline2-font-size: 16px;
+  --headline2-font-weight: 600;
+  --headline2-margin: 1rem 0 0.5rem;
 
-    /* Divider Styles */
-    --divider-padding: 0 42px;
-    --divider-visibility: visible;
+  /* Divider Styles */
+  --divider-padding: 0 42px;
+  --divider-visibility: visible;
 
-    /* Link Styles */
-    --link-text-decoration: none;
-    --link-text-decoration-hover: underline;
+  /* Link Styles */
+  --link-text-decoration: none;
+  --link-text-decoration-hover: underline;
 
-    /* Input Styles */
-    --input-min-width: 12em;
+  /* Input Styles */
+  --input-min-width: 14em;
 
-    /* Button Styles */
-    --button-min-width: max-content;
+  /* Button Styles */
+  --button-min-width: max-content;
 }
 ```
 
@@ -403,7 +419,7 @@ Please note that shadow parts only function when the web components are attached
 behavior. You can enable the shadow DOM for the components using the following code snippet:
 
 ```javascript
-register("https://hanko.yourdomain.com", {shadow: true});
+register("https://hanko.yourdomain.com", { shadow: true });
 
 // equals
 
@@ -432,7 +448,7 @@ The following parts are available:
 - `divider-line` - the line before and after the `divider-text`
 - `form-item` - the container of a form item, e.g. an input field or a button
 
-#### Examples
+#### Using shadow parts
 
 The following examples demonstrate how to apply styles to specific shadow parts:
 
@@ -444,10 +460,10 @@ is applied using the tag name.
 
 ```html
 <style>
-    hanko-auth::part(form-item) {
-        /* Force the input fields and buttons are on top of each other */
-        min-width: 100%;
-    }
+  hanko-auth::part(form-item) {
+    /* Force the input fields and buttons are on top of each other */
+    min-width: 100%;
+  }
 </style>
 
 <hanko-auth></hanko-auth>
@@ -461,11 +477,11 @@ have the `hankoComponent` class.
 
 ```html
 <style>
-    .hankoComponent::part(headline1) {
-        /* Adjust the main headlines for all hanko components */
-        font-size: 1.3em;
-        font-weight: 400;
-    }
+  .hankoComponent::part(headline1) {
+    /* Adjust the main headlines for all hanko components */
+    font-size: 1.3em;
+    font-weight: 400;
+  }
 </style>
 
 <hanko-auth class="hankoComponent"></hanko-auth>
@@ -480,9 +496,9 @@ the ID selector `#hankoAuth` and applies the styles when the `:hover` pseudo-cla
 
 ```html
 <style>
-    #hankoAuth::part(button):hover {
-        box-shadow: 3px 3px 2px #888;
-    }
+  #hankoAuth::part(button):hover {
+    box-shadow: 3px 3px 2px #888;
+  }
 </style>
 
 <hanko-auth id="hankoAuth"></hanko-auth>
@@ -494,7 +510,7 @@ There is also the possibility to provide your own CSS rules when the web compone
 DOM:
 
 ```typescript
-register("https://hanko.yourdomain.com", {shadow: false})
+register("https://hanko.yourdomain.com", { shadow: false });
 ```
 
 Please take a look at the [CSS example](https://github.com/teamhanko/hanko/raw/main/frontend/elements/example.css) file
@@ -504,21 +520,24 @@ example if you like to change the background color, include the following CSS ru
 
 ```css
 .hanko_container {
-    background-color: blue !important;
+  background-color: blue !important;
 }
 ```
 
 Also, you can prevent injecting any styles:
 
 ```typescript
-register("https://hanko.yourdomain.com", {shadow: false, injectStyles: false})
+register("https://hanko.yourdomain.com", {
+  shadow: false,
+  injectStyles: false,
+});
 ```
 
 so you don't need to override properties but provide the entirety of CSS rules:
 
 ```css
 .hanko_container {
-    background-color: blue;
+  background-color: blue;
 }
 
 /* more css rules... */
@@ -555,9 +574,13 @@ Markup:
 
 Translations are currently available for the following languages:
 
+- "bn" - Bengali
 - "de" - German
 - "en" - English
 - "fr" - French
+- "it" - Italian
+- "ptBR" - Brazilian Portuguese
+- "zh" - Simplified Chinese
 
 You can import them individually:
 
@@ -566,9 +589,12 @@ You can import them individually:
 // "https://cdn.jsdelivr.net/npm/@teamhanko/hanko-elements/dist/i18n/{en|de|all|...}.js"
 // if you're using CDN.
 
+import { bn } from "@teamhanko/hanko-elements/i18n/bn";
 import { de } from "@teamhanko/hanko-elements/i18n/de";
 import { en } from "@teamhanko/hanko-elements/i18n/en";
 import { fr } from "@teamhanko/hanko-elements/i18n/fr";
+import { ptBR } from "@teamhanko/hanko-elements/i18n/pt-BR";
+import { zh } from "@teamhanko/hanko-elements/i18n/zh";
 ```
 
 Or import all translations at once:
@@ -580,11 +606,11 @@ import { all } from "@teamhanko/hanko-elements/i18n/all";
 After importing, provide the translations through the `register()` function:
 
 ```typescript
-register("https://hanko.yourdomain.com", {translations: {de, en, fr}});
+register("https://hanko.yourdomain.com", { translations: { bn, de, en, fr, it, ptBR, zh } });
 
 // or
 
-register("https://hanko.yourdomain.com", {translations: all});
+register("https://hanko.yourdomain.com", { translations: all });
 ```
 
 You can now set the `lang` attribute of the element to the desired language:
@@ -602,7 +628,7 @@ import { en } from "@teamhanko/hanko-elements/i18n/en";
 
 en.errors.somethingWentWrong = "Aww, snap!";
 
-register("https://hanko.yourdomain.com", {translations: {en}});
+register("https://hanko.yourdomain.com", { translations: { en } });
 ```
 
 ### Adding New Translations
@@ -638,8 +664,8 @@ Script:
 
 ```typescript
 register("https://hanko.yourdomain.com", {
-    translations: {},             // An empty object, so even the default "en" translation won't be available.
-    translationsLocation: "/i18n" // A public folder containing language files, e.g., "en.json".
+  translations: {}, // An empty object, so even the default "en" translation won't be available.
+  translationsLocation: "/i18n", // A public folder containing language files, e.g., "en.json".
 });
 ```
 
@@ -665,12 +691,12 @@ import { en } from "@teamhanko/hanko-elements/i18n/en";
 import { Translation } from "@teamhanko/hanko-elements";
 
 const symbols: Partial<Translation> = {
-    labels: {continue: "➔"}
+  labels: { continue: "➔" },
 };
 
 register("https://hanko.yourdomain.com", {
-    fallbackLanguage: "en",
-    translations: {en, symbols}
+  fallbackLanguage: "en",
+  translations: { en, symbols },
 });
 ```
 
@@ -681,12 +707,19 @@ Markup:
 <hanko-auth lang="symbols"></hanko-auth>
 ```
 
+### Translation of outgoing Hanko emails
+
+If you use Hanko Elements the language supplied to the `lang` attribute of any of the components is also used to convey
+to the Hanko API the language to use for outgoing emails. If you have disabled email delivery through Hanko and
+configured a webhook for the `email.send` event, the value for the `lang` attribute is reflected in the JWT payload of
+the token contained in the webhook request in the `language` claim.
+
 ## Experimental Features
 
 ### Conditional Mediation / Autofill assisted Requests
 
 ```html
-<hanko-auth [...] experimental="conditionalMediation"/>
+<hanko-auth [...] experimental="conditionalMediation" />
 ```
 
 If the browser supports autofill assisted requests, it will hide the "Sign in with passkey" button on the login page and
@@ -722,7 +755,7 @@ To learn more about how to integrate the Hanko elements into frontend frameworks
 ## Exports
 
 The `@teamhanko/hanko-elements` package exports the functions and interfaces listed below and additionally every
-declaration provided by the [frontend-sdk](https://docs.hanko.io/jsdoc/hanko-frontend-sdk/).
+declaration provided by the [frontend-sdk](https://teamhanko.github.io/hanko/jsdoc/hanko-frontend-sdk/).
 
 ### Functions
 
@@ -756,4 +789,3 @@ Found a bug? Please report on our [GitHub](https://github.com/teamhanko/hanko/is
 ## License
 
 The `elements` project is licensed under the [MIT License](LICENSE).
-
